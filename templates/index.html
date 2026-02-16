@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batch URL Screenshot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="header">
+        <h1>Batch URL Screenshot</h1>
+        <p class="subtitle">Capture homepage screenshots for multiple URLs at once and report invalid links</p>
+    </header>
+
+    <main class="main">
+        <nav class="tabs">
+            <button type="button" class="tab {{ 'active' if active_tab != 'history' else '' }}" data-tab="capture">Capture</button>
+            <button type="button" class="tab {{ 'active' if active_tab == 'history' else '' }}" data-tab="history">History</button>
+        </nav>
+
+        <div id="tab-capture" class="tab-panel {{ 'active' if active_tab != 'history' else '' }}">
+            <section class="input-section">
+                <div class="option-row">
+                    <div class="option-group">
+                        <label for="os">OS / Device</label>
+                        <div class="select-with-icon">
+                            <span id="os-icon" class="option-icon" aria-hidden="true"></span>
+                            <select id="os" name="os">
+                                <option value="windows">Windows</option>
+                                <option value="macos">macOS</option>
+                                <option value="linux">Linux</option>
+                                <option value="iphone">iPhone</option>
+                                <option value="android">Android</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="option-group">
+                        <label for="browser">Browser</label>
+                        <div class="select-with-icon">
+                            <span id="browser-icon" class="option-icon" aria-hidden="true"></span>
+                            <select id="browser" name="browser">
+                                <option value="chrome">Chrome</option>
+                                <option value="firefox">Firefox</option>
+                                <option value="safari">Safari</option>
+                                <option value="edge">Edge</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <label for="urls">Enter URL list (one per line, or comma/space separated)</label>
+                <textarea id="urls" name="urls" rows="8" placeholder="e.g.:&#10;https://example.com&#10;google.com&#10;github.com, https://python.org"></textarea>
+                <div class="actions">
+                    <button id="submit" type="button" class="btn btn-primary">Capture Screenshots</button>
+                    <button id="clear" type="button" class="btn btn-secondary">Clear</button>
+                </div>
+            </section>
+
+            <div id="progress" class="progress hidden">
+                <div class="spinner"></div>
+                <span id="progress-text">Processing, please wait…</span>
+            </div>
+
+            <section id="report" class="report hidden">
+                <h2>Report</h2>
+                <div class="report-summary">
+                    <span class="stat total">Total <strong id="total">0</strong></span>
+                    <span class="stat valid">✓ Success <strong id="valid-count">0</strong></span>
+                    <span class="stat invalid">✗ Invalid <strong id="invalid-count">0</strong></span>
+                </div>
+                <div id="invalid-list" class="invalid-list hidden">
+                    <h3>Invalid URLs</h3>
+                    <ul id="invalid-urls"></ul>
+                </div>
+            </section>
+
+            <section id="gallery" class="gallery hidden">
+                <h2>Screenshots <span id="env-badge" class="env-badge"></span></h2>
+                <div id="screenshots" class="screenshots-grid"></div>
+            </section>
+        </div>
+
+        <div id="tab-history" class="tab-panel {{ 'active' if active_tab == 'history' else '' }}">
+            <section class="report">
+                <div class="history-actions">
+                    <label for="history-search" class="search-label">Search URL</label>
+                    <input type="text" id="history-search" class="search-input" placeholder="Use * for wildcard (e.g. *google*)">
+                    <button type="button" id="delete-selected-btn" class="btn btn-secondary btn-delete-selected" disabled title="Delete selected">Delete selected</button>
+                    <div class="columns-toggle">
+                        <button type="button" id="columns-btn" class="btn-columns" title="Show/hide columns">Columns</button>
+                        <div id="columns-menu" class="columns-menu hidden">
+                            <label class="column-option"><input type="checkbox" data-col="select" checked> Select</label>
+                            <label class="column-option"><input type="checkbox" data-col="time" checked> Time</label>
+                            <label class="column-option"><input type="checkbox" data-col="duration" checked> Duration</label>
+                            <label class="column-option"><input type="checkbox" data-col="url" checked> URL</label>
+                            <label class="column-option"><input type="checkbox" data-col="status" checked> Status</label>
+                            <label class="column-option"><input type="checkbox" data-col="location" checked> Location</label>
+                            <label class="column-option"><input type="checkbox" data-col="ips" checked> IPs</label>
+                            <label class="column-option"><input type="checkbox" data-col="os" checked> OS</label>
+                            <label class="column-option"><input type="checkbox" data-col="browser" checked> Browser</label>
+                            <label class="column-option"><input type="checkbox" data-col="screenshot" checked> Screenshot</label>
+                            <label class="column-option"><input type="checkbox" data-col="actions" checked> Actions</label>
+                        </div>
+                    </div>
+                    <a href="/?tab=history" class="refresh-link">Refresh</a>
+                </div>
+                {% if captures %}
+                <div style="overflow-x: auto;">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th data-col="select" class="select-col"><input type="checkbox" id="select-all" title="Select all"></th>
+                                <th data-col="time">Time</th>
+                                <th data-col="duration">Duration</th>
+                                <th data-col="url">URL</th>
+                                <th data-col="status">Status</th>
+                                <th data-col="location">Location</th>
+                                <th data-col="ips">IPs</th>
+                                <th data-col="os">OS</th>
+                                <th data-col="browser">Browser</th>
+                                <th data-col="screenshot">Screenshot</th>
+                                <th data-col="actions"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for c in captures %}
+                            {% set os_icon = '/static/icons/microsoft.svg' if c.os_model == 'windows' else '/static/icons/apple.svg' if c.os_model in ('macos','iphone') else '/static/icons/linux.svg' if c.os_model == 'linux' else '/static/icons/android.svg' if c.os_model == 'android' else '' %}
+                            {% set browser_icon = '/static/icons/googlechrome.svg' if c.browser_model == 'chrome' else '/static/icons/firefox.svg' if c.browser_model == 'firefox' else '/static/icons/safari.svg' if c.browser_model == 'safari' else '/static/icons/microsoftedge.svg' if c.browser_model == 'edge' else '' %}
+                            <tr data-url="{{ c.url|e }}" data-id="{{ c.id }}">
+                                <td data-col="select" class="select-col"><input type="checkbox" class="row-select" value="{{ c.id }}"></td>
+                                <td data-col="time">{{ c.created_at[:19] if c.created_at else '-' }}</td>
+                                <td data-col="duration">{{ "%.2f"|format(c.duration_seconds) if c.duration_seconds is not none else '-' }}s</td>
+                                <td data-col="url" class="url-cell">
+                                    <a href="{{ c.url }}" target="_blank" rel="noopener">{{ c.url }}</a>
+                                </td>
+                                <td data-col="status" class="{{ 'status-ok' if c.status_code and c.status_code < 400 else 'status-err' }}">
+                                    {{ c.status_code or '-' }}
+                                </td>
+                                <td data-col="location">{{ format_location_display(c.location) }}</td>
+                                <td data-col="ips" class="ips-cell">{{ c.ip_geo or (c.domain_ips or '-')|replace(', ', '\n') }}</td>
+                                <td data-col="os">{% if os_icon %}<img src="{{ os_icon }}" alt="{{ c.os_model }}" class="history-icon" title="{{ c.os_model }}">{% else %}{{ c.os_model or '-' }}{% endif %}</td>
+                                <td data-col="browser">{% if browser_icon %}<img src="{{ browser_icon }}" alt="{{ c.browser_model }}" class="history-icon" title="{{ c.browser_model }}">{% else %}{{ c.browser_model or '-' }}{% endif %}</td>
+                                <td data-col="screenshot">
+                                    {% if c.screenshot_path %}
+                                    <a href="/screenshots/{{ c.screenshot_path }}" target="_blank" rel="noopener">
+                                        <img src="/screenshots/{{ c.screenshot_path }}" alt="Screenshot" class="thumb" loading="lazy">
+                                    </a>
+                                    {% else %}
+                                    <span class="status-err">-</span>
+                                    {% endif %}
+                                </td>
+                                <td data-col="actions">
+                                    <button type="button" class="btn-delete" data-id="{{ c.id }}" title="Delete">Delete</button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div id="history-pagination" class="pagination hidden"></div>
+                {% else %}
+                <div class="empty-state">
+                    <p>No capture history yet. Run a capture first.</p>
+                </div>
+                {% endif %}
+            </section>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <p>Powered by Playwright · Recommended: up to 50 URLs per batch</p>
+    </footer>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
