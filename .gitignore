@@ -1,0 +1,4 @@
+dist/*
+build/*
+*.png
+*.jpg

@@ -239,12 +239,21 @@ def capture_screenshot(
 
     try:
         with sync_playwright() as p:
-            launch = getattr(p, engine).launch
-            try:
-                browser_instance = launch(headless=True)
-            except Exception:
-                # Fallback to chromium if firefox/webkit not installed
-                browser_instance = p.chromium.launch(headless=True)
+            # When frozen (PyInstaller exe), bundled Chromium isn't available. Use system browser.
+            if getattr(sys, "frozen", False):
+                try:
+                    browser_instance = p.chromium.launch(headless=True, channel="msedge")
+                except Exception:
+                    try:
+                        browser_instance = p.chromium.launch(headless=True, channel="chrome")
+                    except Exception:
+                        raise RuntimeError("Need Microsoft Edge or Chrome installed. Run the exe on a PC with Edge/Chrome.")
+            else:
+                launch = getattr(p, engine).launch
+                try:
+                    browser_instance = launch(headless=True)
+                except Exception:
+                    browser_instance = p.chromium.launch(headless=True)
 
             context = browser_instance.new_context(**context_options)
             page = context.new_page()
