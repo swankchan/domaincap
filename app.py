@@ -324,11 +324,13 @@ def capture_screenshot(
     import os
     env_js = os.environ.get("DEFAULT_JS_ENABLED", "True").lower() == "true"
     
+    engine = get_browser_engine(browser)
     context_options = {
         "viewport": os_preset["viewport"],
         "user_agent": user_agent,
         "ignore_https_errors": True,
-        "is_mobile": os_preset["is_mobile"],
+        # Note: Playwright's Firefox engine does not support options.is_mobile
+        "is_mobile": False if engine == "firefox" else os_preset["is_mobile"],
         
         # 💡 從前端請求中讀取，預設沿用 .env 的設定
         # js_param = request.args.get("js_enabled", str(os.environ.get("DEFAULT_JS_ENABLED", "False"))),
@@ -353,7 +355,6 @@ def capture_screenshot(
         },
     }
 
-    engine = get_browser_engine(browser)
     t0 = time.perf_counter()
 
     try:
