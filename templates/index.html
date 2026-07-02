@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Batch URL Screenshot</title>
+    <title>DomainCap</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -11,8 +11,8 @@
 </head>
 <body>
     <header class="header">
-        <h1>Batch URL Screenshot</h1>
-        <p class="subtitle">Capture homepage screenshots for multiple URLs at once and report invalid links</p>
+        <h1>DomainCap</h1>
+        <p class="subtitle">./static/screenshots/yyyy-mm-dd/</p>
     </header>
 
     <main class="main">
@@ -29,11 +29,11 @@
                         <div class="select-with-icon">
                             <span id="os-icon" class="option-icon" aria-hidden="true"></span>
                             <select id="os" name="os">
-                                <option value="windows">Windows</option>
-                                <option value="macos">macOS</option>
-                                <option value="linux">Linux</option>
-                                <option value="iphone">iPhone</option>
-                                <option value="android">Android</option>
+             	               <option value="windows">Windows</option>
+             	               <option value="macos">macOS</option>
+             	               <option value="linux">Linux</option>
+             	               <option value="iphone">iPhone</option>
+             	               <option value="android">Android</option>
                             </select>
                         </div>
                     </div>
@@ -42,11 +42,29 @@
                         <div class="select-with-icon">
                             <span id="browser-icon" class="option-icon" aria-hidden="true"></span>
                             <select id="browser" name="browser">
-                                <option value="chrome">Chrome</option>
-                                <option value="firefox">Firefox</option>
-                                <option value="safari">Safari</option>
-                                <option value="edge">Edge</option>
+             	               <option value="chrome">Chrome</option>
+             	               <option value="firefox">Firefox</option>
+             	               <option value="safari">Safari</option>
+             	               <option value="edge">Edge</option>
                             </select>
+                        </div>
+                    </div>
+                    <div class="option-group">
+                        <label for="headless">Mode</label>
+                        <div class="select-with-icon" style="align-items: flex-start;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; margin: 0;">
+             	               <input type="checkbox" id="headless" checked style="width: auto; margin: 0;">
+             	               <span style="font-size: 0.9rem;">Headless</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="option-group">
+                        <label for="watermark">Watermark</label>
+                        <div class="select-with-icon" style="align-items: flex-start;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; margin: 0;">
+             	               <input type="checkbox" id="watermark" checked style="width: auto; margin: 0;">
+             	               <span style="font-size: 0.9rem;">Show Watermark</span>
+                            </label>
                         </div>
                     </div>
                 </div>
@@ -100,6 +118,9 @@
                             <label class="column-option"><input type="checkbox" data-col="ips" checked> IPs</label>
                             <label class="column-option"><input type="checkbox" data-col="os" checked> OS</label>
                             <label class="column-option"><input type="checkbox" data-col="browser" checked> Browser</label>
+                            <label class="column-option"><input type="checkbox" data-col="reg-date" checked> Registered</label>
+                            <label class="column-option"><input type="checkbox" data-col="exp-date" checked> Expiration</label>
+                            <label class="column-option"><input type="checkbox" data-col="registrar" checked> Registrar</label>
                             <label class="column-option"><input type="checkbox" data-col="screenshot" checked> Screenshot</label>
                             <label class="column-option"><input type="checkbox" data-col="actions" checked> Actions</label>
                         </div>
@@ -111,17 +132,20 @@
                     <table class="history-table">
                         <thead>
                             <tr>
-                                <th data-col="select" class="select-col"><input type="checkbox" id="select-all" title="Select all"></th>
-                                <th data-col="time">Time</th>
-                                <th data-col="duration">Duration</th>
-                                <th data-col="url">URL</th>
-                                <th data-col="status">Status</th>
-                                <th data-col="location">Location</th>
-                                <th data-col="ips">IPs</th>
-                                <th data-col="os">OS</th>
-                                <th data-col="browser">Browser</th>
-                                <th data-col="screenshot">Screenshot</th>
-                                <th data-col="actions"></th>
+             	               <th data-col="select" class="select-col"><input type="checkbox" id="select-all" title="Select all"></th>
+             	               <th data-col="time">Time</th>
+             	               <th data-col="duration">Duration</th>
+             	               <th data-col="url">URL</th>
+             	               <th data-col="status">Status</th>
+             	               <th data-col="location">Location</th>
+             	               <th data-col="ips">IPs</th>
+             	               <th data-col="os">OS</th>
+             	               <th data-col="browser">Browser</th>
+             	               <th data-col="reg-date">Registered</th>
+             	               <th data-col="exp-date">Expiration</th>
+             	               <th data-col="registrar">Registrar</th>
+             	               <th data-col="screenshot">Screenshot</th>
+             	               <th data-col="actions"></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -129,31 +153,34 @@
                             {% set os_icon = '/static/icons/microsoft.svg' if c.os_model == 'windows' else '/static/icons/apple.svg' if c.os_model in ('macos','iphone') else '/static/icons/linux.svg' if c.os_model == 'linux' else '/static/icons/android.svg' if c.os_model == 'android' else '' %}
                             {% set browser_icon = '/static/icons/googlechrome.svg' if c.browser_model == 'chrome' else '/static/icons/firefox.svg' if c.browser_model == 'firefox' else '/static/icons/safari.svg' if c.browser_model == 'safari' else '/static/icons/microsoftedge.svg' if c.browser_model == 'edge' else '' %}
                             <tr data-url="{{ c.url|e }}" data-id="{{ c.id }}">
-                                <td data-col="select" class="select-col"><input type="checkbox" class="row-select" value="{{ c.id }}"></td>
-                                <td data-col="time">{{ c.created_at[:19] if c.created_at else '-' }}</td>
-                                <td data-col="duration">{{ "%.2f"|format(c.duration_seconds) if c.duration_seconds is not none else '-' }}s</td>
-                                <td data-col="url" class="url-cell">
-                                    <a href="{{ c.url }}" target="_blank" rel="noopener">{{ c.url }}</a>
-                                </td>
-                                <td data-col="status" class="{{ 'status-ok' if c.status_code and c.status_code < 400 else 'status-err' }}">
-                                    {{ c.status_code or '-' }}
-                                </td>
-                                <td data-col="location">{{ format_location_display(c.location) }}</td>
-                                <td data-col="ips" class="ips-cell">{{ c.ip_geo or (c.domain_ips or '-')|replace(', ', '\n') }}</td>
-                                <td data-col="os">{% if os_icon %}<img src="{{ os_icon }}" alt="{{ c.os_model }}" class="history-icon" title="{{ c.os_model }}">{% else %}{{ c.os_model or '-' }}{% endif %}</td>
-                                <td data-col="browser">{% if browser_icon %}<img src="{{ browser_icon }}" alt="{{ c.browser_model }}" class="history-icon" title="{{ c.browser_model }}">{% else %}{{ c.browser_model or '-' }}{% endif %}</td>
-                                <td data-col="screenshot">
-                                    {% if c.screenshot_path %}
-                                    <a href="/screenshots/{{ c.screenshot_path }}" target="_blank" rel="noopener">
-                                        <img src="/screenshots/{{ c.screenshot_path }}" alt="Screenshot" class="thumb" loading="lazy">
-                                    </a>
-                                    {% else %}
-                                    <span class="status-err">-</span>
-                                    {% endif %}
-                                </td>
-                                <td data-col="actions">
-                                    <button type="button" class="btn-delete" data-id="{{ c.id }}" title="Delete">Delete</button>
-                                </td>
+             	               <td data-col="select" class="select-col"><input type="checkbox" class="row-select" value="{{ c.id }}"></td>
+             	               <td data-col="time">{{ c.created_at[:19] if c.created_at else '-' }}</td>
+             	               <td data-col="duration">{{ "%.2f"|format(c.duration_seconds) if c.duration_seconds is not none else '-' }}s</td>
+             	               <td data-col="url" class="url-cell">
+             	                   <a href="{{ c.url }}" target="_blank" rel="noopener">{{ c.url }}</a>
+             	               </td>
+             	               <td data-col="status" class="{{ 'status-ok' if c.status_code and c.status_code < 400 else 'status-err' }}">
+             	                   {{ c.status_code or '-' }}
+             	               </td>
+             	               <td data-col="location">{{ format_location_display(c.location) }}</td>
+             	               <td data-col="ips" class="ips-cell">{{ c.ip_geo or (c.domain_ips or '-')|replace(', ', '\n') }}</td>
+             	               <td data-col="os">{% if os_icon %}<img src="{{ os_icon }}" alt="{{ c.os_model }}" class="history-icon" title="{{ c.os_model }}">{% else %}{{ c.os_model or '-' }}{% endif %}</td>
+             	               <td data-col="browser">{% if browser_icon %}<img src="{{ browser_icon }}" alt="{{ c.browser_model }}" class="history-icon" title="{{ c.browser_model }}">{% else %}{{ c.browser_model or '-' }}{% endif %}</td>
+             	               <td data-col="reg-date">{{ c.domain_registered_date or 'NA' }}</td>
+             	               <td data-col="exp-date">{{ c.domain_expiration_date or 'NA' }}</td>
+             	               <td data-col="registrar">{{ c.domain_registrar or 'NA' }}</td>
+             	               <td data-col="screenshot">
+             	                   {% if c.screenshot_path %}
+             	                   <a href="/screenshots/{{ c.screenshot_path }}" target="_blank" rel="noopener">
+                          	              <img src="/screenshots/{{ c.screenshot_path }}" alt="Screenshot" class="thumb" loading="lazy">
+             	                   </a>
+             	                   {% else %}
+             	                   <span class="status-err">-</span>
+             	                   {% endif %}
+             	               </td>
+             	               <td data-col="actions">
+             	                   <button type="button" class="btn-delete" data-id="{{ c.id }}" title="Delete">Delete</button>
+             	               </td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -170,7 +197,7 @@
     </main>
 
     <footer class="footer">
-        <p>Powered by Playwright · Recommended: up to 50 URLs per batch</p>
+        <p>Powered by Playwright · Recommended: up to 100 URLs per batch</p>
     </footer>
 
     <script src="/static/script.js"></script>

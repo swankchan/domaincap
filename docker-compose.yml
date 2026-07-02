@@ -1,0 +1,17 @@
+services:
+  domaincap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: DomainCap
+    ports:
+      - "5001:5001"
+    environment:
+      - FLASK_HOST=0.0.0.0
+      - PYTHONUNBUFFERED=1
+      - TZ=Asia/Hong_Kong
+    volumes:
+      - ./static/screenshots:/app/static/screenshots
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    restart: unless-stopped

@@ -17,6 +17,42 @@ const BROWSER_ICONS = {
     edge: "/static/icons/microsoftedge.svg",
 };
 
+// Browser support per OS (Safari only on macOS/iOS)
+const OS_BROWSER_SUPPORT = {
+    windows: ["chrome", "edge", "firefox"],
+    macos: ["chrome", "edge", "firefox", "safari"],
+    linux: ["chrome", "firefox"],
+    iphone: ["safari", "chrome", "firefox"],
+    android: ["chrome", "firefox"],
+};
+
+function updateBrowserOptions() {
+    const os = document.getElementById("os")?.value;
+    const browserSelect = document.getElementById("browser");
+    if (!os || !browserSelect) return;
+
+    const supported = OS_BROWSER_SUPPORT[os] || ["chrome"];
+    const currentBrowser = browserSelect.value;
+
+    // Clear and repopulate browser options
+    browserSelect.innerHTML = "";
+    for (const br of supported) {
+        const option = document.createElement("option");
+        option.value = br;
+        option.textContent = br.charAt(0).toUpperCase() + br.slice(1);
+        browserSelect.appendChild(option);
+    }
+
+    // Restore current browser if supported, otherwise set to first available
+    if (supported.includes(currentBrowser)) {
+        browserSelect.value = currentBrowser;
+    } else if (supported.length > 0) {
+        browserSelect.value = supported[0];
+    }
+
+    updateOptionIcons();
+}
+
 function updateOptionIcons() {
     const osEl = document.getElementById("os");
     const browserEl = document.getElementById("browser");
@@ -35,7 +71,7 @@ function updateOptionIcons() {
 }
 
 updateOptionIcons();
-document.getElementById("os")?.addEventListener("change", updateOptionIcons);
+document.getElementById("os")?.addEventListener("change", updateBrowserOptions);
 document.getElementById("browser")?.addEventListener("change", updateOptionIcons);
 
 const progressEl = document.getElementById("progress");
@@ -73,11 +109,12 @@ async function handleSubmit() {
     try {
         const os = document.getElementById("os").value;
         const browser = document.getElementById("browser").value;
+        const headless = document.getElementById("headless").checked;
 
         const res = await fetch("/api/process", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ urls: text, os, browser }),
+            body: JSON.stringify({ urls: text, os, browser, headless, watermark: document.getElementById("watermark").checked }),
         });
 
         if (!res.ok) {

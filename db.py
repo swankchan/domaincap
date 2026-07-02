@@ -17,6 +17,14 @@ def get_connection():
     return sqlite3.connect(str(DB_PATH))
 
 
+def get_whois_data(url: str) -> tuple[str, str, str]:
+    """
+    WHOIS data gathering disabled.
+    Returns ("NA", "NA", "NA") for all queries.
+    """
+    return "NA", "NA", "NA"
+
+
 def init_db():
     with get_connection() as conn:
         conn.execute("""
@@ -39,6 +47,14 @@ def init_db():
                 conn.execute(f"ALTER TABLE captures ADD COLUMN {col} {col_type}")
             except sqlite3.OperationalError:
                 pass
+        
+        # Add WHOIS columns
+        for col, col_type in (("domain_registered_date", "TEXT"), ("domain_expiration_date", "TEXT"), ("domain_registrar", "TEXT")):
+            try:
+                conn.execute(f"ALTER TABLE captures ADD COLUMN {col} {col_type} DEFAULT 'NA'")
+            except sqlite3.OperationalError:
+                pass
+        
         conn.commit()
 
 
@@ -53,14 +69,17 @@ def insert_capture(
     location: str | None = None,
     domain_ips: str | None = None,
     ip_geo: str | None = None,
+    domain_registered_date: str | None = None,
+    domain_expiration_date: str | None = None,
+    domain_registrar: str | None = None,
 ):
     with get_connection() as conn:
         conn.execute(
             """
-            INSERT INTO captures (created_at, duration_seconds, url, status_code, os_model, browser_model, screenshot_path, location, domain_ips, ip_geo)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO captures (created_at, duration_seconds, url, status_code, os_model, browser_model, screenshot_path, location, domain_ips, ip_geo, domain_registered_date, domain_expiration_date, domain_registrar)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (created_at, duration_seconds, url, status_code, os_model, browser_model, screenshot_path, location, domain_ips, ip_geo),
+            (created_at, duration_seconds, url, status_code, os_model, browser_model, screenshot_path, location, domain_ips, ip_geo, domain_registered_date or "NA", domain_expiration_date or "NA", domain_registrar or "NA"),
         )
         conn.commit()
 
@@ -104,7 +123,7 @@ def get_all_captures(limit: int = 500):
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
-            SELECT id, created_at, duration_seconds, url, status_code, os_model, browser_model, screenshot_path, location, domain_ips, ip_geo
+            SELECT id, created_at, duration_seconds, url, status_code, os_model, browser_model, screenshot_path, location, domain_ips, ip_geo, domain_registered_date, domain_expiration_date, domain_registrar
             FROM captures
             ORDER BY id DESC
             LIMIT ?
@@ -112,3 +131,14 @@ def get_all_captures(limit: int = 500):
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def get_capture(capture_id: int) -> dict | None:
+    """Return a single capture by id, or None if not found."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT id, created_at, duration_seconds, url, status_code, os_model, browser_model, screenshot_path, location, domain_ips, ip_geo, domain_registered_date, domain_expiration_date, domain_registrar FROM captures WHERE id = ?",
+            (capture_id,),
+        ).fetchone()
+        return dict(row) if row else None

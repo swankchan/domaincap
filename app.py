@@ -7,14 +7,19 @@ Batch URL Screenshot Web App
 - Store records in SQLite for history review
 - Record location (e.g. VPN location) when capturing
 """
+import os
+from dotenv import load_dotenv
+load_dotenv() # 讀取 .env 檔案
 
 import json
 import re
 import socket
 import sys
 import time
-import uuid
-from datetime import datetime
+
+from datetime import datetime, timezone, timedelta
+HKT = timezone(timedelta(hours=8))
+
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import urlopen, Request
@@ -22,7 +27,7 @@ from urllib.request import urlopen, Request
 from flask import Flask, Response, render_template, request, jsonify, send_from_directory, stream_with_context
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
-from db import init_db, insert_capture, get_all_captures, delete_capture, delete_captures_bulk
+from db import init_db, insert_capture, get_all_captures, get_capture, delete_capture, delete_captures_bulk, get_whois_data
 
 # PyInstaller: when frozen, use _MEIPASS for bundled files, cwd for writable screenshots
 if getattr(sys, "frozen", False):
@@ -44,7 +49,7 @@ app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB
 
 
 def normalize_url(url: str) -> str:
-    """Convert input to valid URL. Handles safety placeholders like [.] -> ."""
+    """Convert input to valid URL. Handles safety placeholders and removes brackets."""
     url = url.strip()
     if not url:
         return ""
@@ -52,6 +57,8 @@ def normalize_url(url: str) -> str:
     url = re.sub(r"\[\.\]", ".", url, flags=re.IGNORECASE)
     url = re.sub(r"\(\.\)", ".", url, flags=re.IGNORECASE)
     url = re.sub(r"\(dot\)", ".", url, flags=re.IGNORECASE)
+    # Remove all common bracket types: [], (), {}, <>
+    url = re.sub(r"[\[\]\(\)\{\}<>]", "", url)
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
     return url
@@ -158,48 +165,59 @@ def extract_urls(text: str) -> list[str]:
 
 
 # OS/Device viewport presets (width, height, is_mobile) + user agent templates
+# Note: Safari only supports macOS and iOS - not Windows or Linux
 DEVICE_PRESETS = {
     "windows": {
         "viewport": {"width": 1920, "height": 1080},
-        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) {browser_ua}",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "is_mobile": False,
+        "supported_browsers": ["chrome", "edge", "firefox"],
     },
     "macos": {
         "viewport": {"width": 1440, "height": 900},
-        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) {browser_ua}",
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "is_mobile": False,
+        "supported_browsers": ["chrome", "edge", "firefox", "safari"],
     },
     "linux": {
         "viewport": {"width": 1920, "height": 1080},
-        "user_agent": "Mozilla/5.0 (X11; Linux x86_64) {browser_ua}",
+        "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "is_mobile": False,
+        "supported_browsers": ["chrome", "firefox"],
     },
     "iphone": {
         "viewport": {"width": 390, "height": 844},
-        "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 {browser_ua}",
-        "user_agent_mobile": True,
+        "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
         "is_mobile": True,
+        "supported_browsers": ["safari", "chrome", "firefox"],
     },
     "android": {
         "viewport": {"width": 412, "height": 915},
-        "user_agent": "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-        "user_agent_mobile": False,  # Use fixed UA
+        "user_agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
         "is_mobile": True,
+        "supported_browsers": ["chrome", "firefox"],
     },
 }
 
+# Browser-specific user agent templates (for dynamic switching within OS)
 BROWSER_UA = {
-    "chrome": "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "edge": "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
-    "firefox": "Gecko/20100101 Firefox/121.0",
-    "safari": "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+    "chrome": "Mozilla/5.0 ({os_platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "edge": "Mozilla/5.0 ({os_platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+    "firefox": "Mozilla/5.0 ({os_platform}; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "safari": "Mozilla/5.0 ({os_platform}) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
 }
-# Mobile browser UA suffixes (appended after AppleWebKit/605.1.15 for iOS/Android)
-BROWSER_UA_MOBILE = {
-    "chrome": "(KHTML, like Gecko) CriOS/120.0.0.0 Mobile/15E148 Safari/604.1",
-    "edge": "(KHTML, like Gecko) EdgiOS/120.0.0.0 Mobile/15E148 Safari/604.1",
-    "firefox": "(KHTML, like Gecko) FxiOS/121.0 Mobile/15E148 Safari/605.1.15",
-    "safari": "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+
+# Mobile User Agents by OS and Browser
+MOBILE_USER_AGENTS = {
+    "iphone": {
+        "safari": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "chrome": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/124.0.0.0 Mobile/15E148 Safari/604.1",
+        "firefox": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/125.0 Mobile/15E148 Safari/604.1",
+    },
+    "android": {
+        "chrome": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+        "firefox": "Mozilla/5.0 (Android 14; Mobile; rv:125.0) Gecko/125.0 Firefox/125.0",
+    },
 }
 
 
@@ -209,8 +227,74 @@ def get_browser_engine(browser: str):
     return engines.get(browser, "chromium")
 
 
+def get_supported_browsers(os_name: str) -> list[str]:
+    """Get list of browsers supported for a given OS."""
+    os_preset = DEVICE_PRESETS.get(os_name)
+    return os_preset.get("supported_browsers", []) if os_preset else []
+
+
+def url_to_filename(url: str) -> str:
+    """
+    Convert URL to screenshot filename base, keeping file extension.
+    Examples:
+      https://wsdXXX.lol/hk → wsdxxx.lol-hk
+      https://wsdXXX.ai/hk/login.html → wsdxxx.ai-hk-login.html
+      https://wsdazmr.com/hkwsd/login.html → wsdazmr.com-hkwsd-login.html
+    Returns filename without directory path and without .png extension.
+    """
+    parsed = urlparse(url)
+    domain = parsed.netloc or parsed.hostname or "unknown"
+    path = parsed.path.strip("/") or ""
+
+    # Clean up empty path segments (e.g., from consecutive slashes) while preserving file extension
+    if path:
+        parts = [p for p in path.split("/") if p]
+        path = "/".join(parts)
+
+    # Join domain and path with hyphens
+    if path:
+        base_name = f"{domain}-{path.replace('/', '-')}".replace("--", "-")
+    else:
+        base_name = domain
+
+    # Remove any trailing hyphens and force lowercase
+    base_name = base_name.strip("-").lower()
+    return base_name
+
+
+def generate_screenshot_filename(url: str, os_name: str, browser_name: str, screenshot_dir: Path) -> str:
+    """
+    Generate screenshot filename with OS and browser info appended.
+    Format: url_basename-os-browser.png
+    Example: wsdxxx.lol-hk-windows-chrome.png
+    Handles number collisions if the same URL/OS/Browser captured multiple times in same day.
+    """
+    base_name = url_to_filename(url)
+    filename = f"{base_name}-{os_name.lower()}-{browser_name.lower()}.png"
+
+    # Check for collisions: if file exists, append -1, -2, etc.
+    if not (screenshot_dir / filename).exists():
+        return filename
+
+    # Collision detected: append counter
+    counter = 1
+    while True:
+        collision_filename = f"{base_name}-{os_name.lower()}-{browser_name.lower()}-{counter}.png"
+        if not (screenshot_dir / collision_filename).exists():
+            return collision_filename
+        counter += 1
+
+
+def get_screenshot_date_dir(created_at: str) -> str:
+    """
+    Extract date from ISO datetime string and return as YYYY-MM-DD.
+    Example: 2026-03-20T14:30:45.123456 → 2026-03-20
+    """
+    return created_at[:10] if len(created_at) >= 10 else datetime.now(HKT).strftime("%Y-%m-%d")
+
+
 def capture_screenshot(
-    url: str, output_path: Path, os: str = "windows", browser: str = "chrome"
+    url: str, output_path: Path, os: str = "windows", browser: str = "chrome", headless: bool = True, watermark: bool = True
 ) -> tuple[bool, str, int | None, float]:
     """
     Capture homepage screenshot of URL.
@@ -218,20 +302,55 @@ def capture_screenshot(
     Returns (success, error_message, status_code, elapsed_seconds).
     """
     os_preset = DEVICE_PRESETS.get(os, DEVICE_PRESETS["windows"])
-    if os_preset.get("user_agent_mobile"):
-        browser_ua = BROWSER_UA_MOBILE.get(browser, BROWSER_UA_MOBILE["safari"])
-        user_agent = os_preset["user_agent"].format(browser_ua=browser_ua)
-    elif os == "android":
-        user_agent = os_preset["user_agent"]
-    else:
-        browser_ua = BROWSER_UA.get(browser, BROWSER_UA["chrome"])
-        user_agent = os_preset["user_agent"].format(browser_ua=browser_ua)
 
+    # Build user agent based on OS and browser
+    if os_preset.get("is_mobile"):
+        # Mobile devices use UA specific to OS and Browser
+        os_mobile_uas = MOBILE_USER_AGENTS.get(os, {})
+        user_agent = os_mobile_uas.get(browser, os_preset["user_agent"])
+    else:
+        # Desktop: use browser-specific UA with OS platform info
+        os_platform = ""
+        if os == "windows":
+            os_platform = "Windows NT 10.0; Win64; x64"
+        elif os == "macos":
+            os_platform = "Macintosh; Intel Mac OS X 10_15_7"
+        elif os == "linux":
+            os_platform = "X11; Linux x86_64"
+
+        browser_template = BROWSER_UA.get(browser, BROWSER_UA["chrome"])
+        user_agent = browser_template.format(os_platform=os_platform)
+    
+    import os
+    env_js = os.environ.get("DEFAULT_JS_ENABLED", "True").lower() == "true"
+    
     context_options = {
         "viewport": os_preset["viewport"],
         "user_agent": user_agent,
         "ignore_https_errors": True,
         "is_mobile": os_preset["is_mobile"],
+        
+        # 💡 從前端請求中讀取，預設沿用 .env 的設定
+        # js_param = request.args.get("js_enabled", str(os.environ.get("DEFAULT_JS_ENABLED", "False"))),
+        # is_js_enabled = js_param.lower() == "true",
+        # 🔒 貼在這裡：提高批量 URL 檢查的安全防禦
+        # "javaScriptEnabled": False, 
+        "java_script_enabled": env_js,
+        "accept_downloads": False, # 💡 注意：Playwright Python 的參數名是底線 accept_downloads
+        
+        # Additional options to appear more human-like
+        "locale": "zh-HK",
+        "timezone_id": "Asia/Hong_Kong",
+        "permissions": [],
+        "geolocation": None,
+        "extra_http_headers": {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "zh-HK,zh-Hant;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        },
     }
 
     engine = get_browser_engine(browser)
@@ -239,21 +358,13 @@ def capture_screenshot(
 
     try:
         with sync_playwright() as p:
-            # When frozen (PyInstaller exe), bundled Chromium isn't available. Use system browser.
-            if getattr(sys, "frozen", False):
-                try:
-                    browser_instance = p.chromium.launch(headless=True, channel="msedge")
-                except Exception:
-                    try:
-                        browser_instance = p.chromium.launch(headless=True, channel="chrome")
-                    except Exception:
-                        raise RuntimeError("Need Microsoft Edge or Chrome installed. Run the exe on a PC with Edge/Chrome.")
-            else:
+            # Use Playwright bundled browsers only
+            try:
                 launch = getattr(p, engine).launch
-                try:
-                    browser_instance = launch(headless=True)
-                except Exception:
-                    browser_instance = p.chromium.launch(headless=True)
+                browser_instance = launch(headless=headless)
+                print(f"Using Playwright bundled {engine} browser (headless={headless})")
+            except Exception as launch_err:
+                raise RuntimeError(f"Playwright {engine} browser not installed. Please run: python -m playwright install {engine}. Error: {launch_err}")
 
             context = browser_instance.new_context(**context_options)
             page = context.new_page()
@@ -270,8 +381,41 @@ def capture_screenshot(
                 # 304 = Not Modified: body empty, browser uses cache; needs more time to render
                 if response and response.status == 304:
                     page.wait_for_timeout(5000)
+
+
             except PlaywrightTimeout:
                 pass  # Continue; screenshot may still succeed
+
+            # Inject watermark with timestamp and URL (if enabled)
+            if watermark:
+                timestamp = datetime.now(HKT).strftime("%Y-%m-%d %H:%M:%S")
+                watermark_html = f"""<div id="domaincap-watermark" style="
+                    position: fixed;
+                    bottom: 10px;
+                    right: 10px;
+                    background: rgba(15, 20, 25, 0.85);
+                    color: #e6edf3;
+                    font-family: 'JetBrains Mono', monospace;
+                    font-size: 11px;
+                    padding: 6px 10px;
+                    border-radius: 4px;
+                    border: 1px solid rgba(88, 166, 255, 0.3);
+                    z-index: 9999;
+                    max-width: 300px;
+                    text-align: right;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                ">
+                    <div style="color: #79b8ff; margin-bottom: 2px;">{timestamp}</div>
+                    <div style="color: #58a6ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{url.replace('&', '&amp;')}">{url}</div>
+                </div>"""
+
+                page.add_style_tag(content="""
+                    #domaincap-watermark * { box-sizing: border-box; }
+                """)
+                page.evaluate(f"""document.body.insertAdjacentHTML('beforeend', `{watermark_html}`)""")
+
+                # Wait for watermark render
+                page.wait_for_timeout(100)
 
             page.screenshot(path=str(output_path), full_page=False)
             elapsed = time.perf_counter() - t0
@@ -289,11 +433,14 @@ def capture_screenshot(
             return False, "Connection refused", None, elapsed
         if "dns" in err or "name or service not known" in err:
             return False, "DNS resolution failed", None, elapsed
+        if "blocked" in err or "403" in err or "forbidden" in err:
+            return False, "Request blocked by server", None, elapsed
         return False, str(e)[:100], None, elapsed
 
 
 @app.route("/")
 def index():
+    
     captures = get_all_captures()
     tab = request.args.get("tab", "capture")
     return render_template(
@@ -344,6 +491,94 @@ def api_delete_capture(capture_id):
     return jsonify({"ok": True})
 
 
+@app.route("/api/captures", methods=["GET"])
+def api_list_captures():
+    """Return a list of recent capture records."""
+    limit = request.args.get("limit", default=500, type=int)
+    limit = max(1, min(limit, 2000))
+    captures = get_all_captures(limit=limit)
+    return jsonify({"captures": captures})
+
+
+@app.route("/api/captures/<int:capture_id>", methods=["GET"])
+def api_get_capture(capture_id):
+    """Return a single capture record by ID."""
+    capture = get_capture(capture_id)
+    if not capture:
+        return jsonify({"error": "Capture not found"}), 404
+    return jsonify(capture)
+
+
+@app.route("/api/capture", methods=["POST"])
+def api_capture_url():
+    """Capture a single URL (non-SSE API)."""
+    data = request.get_json() or {}
+    url = data.get("url", "")
+    os_choice = data.get("os", "windows")
+    browser_choice = data.get("browser", "chrome")
+    headless = data.get("headless", True)
+
+    if not isinstance(url, str) or not url.strip():
+        return jsonify({"error": "Missing url"}), 400
+
+    url = normalize_url(url)
+    if not url:
+        return jsonify({"error": "Invalid url"}), 400
+
+    # Validate browser is supported for selected OS
+    supported = get_supported_browsers(os_choice)
+    if browser_choice not in supported:
+        return jsonify({"error": f"Browser '{browser_choice}' is not supported on {os_choice}. Supported: {', '.join(supported)}"}), 400
+
+    created_at = datetime.now(HKT).isoformat()
+    date_dir_str = get_screenshot_date_dir(created_at)
+    date_dir = UPLOAD_FOLDER / date_dir_str
+    date_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = generate_screenshot_filename(url, os_choice, browser_choice, date_dir)
+    output_path = date_dir / filename
+
+    success, error_msg, status_code, elapsed = capture_screenshot(
+        url, output_path, os=os_choice, browser=browser_choice, headless=headless, watermark=data.get("watermark", True)
+    )
+
+    # Store relative path in database: yyyy-mm-dd/filename
+    screenshot_rel_path = f"{date_dir_str}/{filename}" if success else None
+    screenshot_rel = f"/screenshots/{screenshot_rel_path}" if success else None
+    domain_ips, ip_geo = resolve_domain_ips(url)
+    reg_date, exp_date, registrar = get_whois_data(url)
+
+    insert_capture(
+        created_at=created_at,
+        url=url,
+        status_code=status_code,
+        os_model=os_choice,
+        browser_model=browser_choice,
+        screenshot_path=screenshot_rel_path,
+        duration_seconds=elapsed,
+        location=get_location(),
+        domain_ips=domain_ips,
+        ip_geo=ip_geo,
+        domain_registered_date=reg_date,
+        domain_expiration_date=exp_date,
+        domain_registrar=registrar,
+    )
+
+    result = {
+        "url": url,
+        "valid": success,
+        "status_code": status_code,
+        "created_at": created_at,
+        "duration_seconds": round(elapsed, 2),
+    }
+    if success:
+        result["screenshot"] = screenshot_rel
+    else:
+        result["error"] = error_msg
+
+    return jsonify(result), (200 if success else 502)
+
+
 def _sse_message(obj: dict) -> str:
     return f"data: {json.dumps(obj)}\n\n"
 
@@ -355,6 +590,7 @@ def process_urls():
     text = data.get("urls", "")
     os_choice = data.get("os", "windows")
     browser_choice = data.get("browser", "chrome")
+    headless = data.get("headless", True)
 
     if not text.strip():
         return jsonify({"error": "Please enter at least one URL"}), 400
@@ -364,8 +600,13 @@ def process_urls():
     if not urls:
         return jsonify({"error": "No valid URLs found"}), 400
 
-    if len(urls) > 50:
-        return jsonify({"error": "Maximum 50 URLs per batch"}), 400
+    if len(urls) > 500:
+        return jsonify({"error": "Maximum 500 URLs per batch"}), 400
+
+    # Validate browser is supported for selected OS
+    supported = get_supported_browsers(os_choice)
+    if browser_choice not in supported:
+        return jsonify({"error": f"Browser '{browser_choice}' is not supported on {os_choice}. Supported: {', '.join(supported)}"}), 400
 
     def generate():
         total = len(urls)
@@ -380,16 +621,23 @@ def process_urls():
                 "url": url,
             })
 
-            filename = f"{uuid.uuid4().hex}.png"
-            output_path = UPLOAD_FOLDER / filename
+            created_at = datetime.now(HKT).isoformat()
+            date_dir_str = get_screenshot_date_dir(created_at)
+            date_dir = UPLOAD_FOLDER / date_dir_str
+            date_dir.mkdir(parents=True, exist_ok=True)
+
+            filename = generate_screenshot_filename(url, os_choice, browser_choice, date_dir)
+            output_path = date_dir / filename
 
             success, error_msg, status_code, elapsed = capture_screenshot(
-                url, output_path, os=os_choice, browser=browser_choice
+                url, output_path, os=os_choice, browser=browser_choice, headless=headless, watermark=data.get("watermark", True)
             )
 
-            created_at = datetime.now().isoformat()
-            screenshot_rel = f"/screenshots/{filename}" if success else None
+            # Store relative path in database: yyyy-mm-dd/filename
+            screenshot_rel_path = f"{date_dir_str}/{filename}" if success else None
+            screenshot_rel = f"/screenshots/{screenshot_rel_path}" if success else None
             domain_ips, ip_geo = resolve_domain_ips(url)
+            reg_date, exp_date, registrar = get_whois_data(url)
 
             insert_capture(
                 created_at=created_at,
@@ -397,11 +645,14 @@ def process_urls():
                 status_code=status_code,
                 os_model=os_choice,
                 browser_model=browser_choice,
-                screenshot_path=filename if success else None,
+                screenshot_path=screenshot_rel_path,
                 duration_seconds=elapsed,
                 location=location,
                 domain_ips=domain_ips,
                 ip_geo=ip_geo,
+                domain_registered_date=reg_date,
+                domain_expiration_date=exp_date,
+                domain_registrar=registrar,
             )
 
             if success:
@@ -441,4 +692,7 @@ def process_urls():
 
 
 if __name__ == "__main__":
-    app.run(debug=not getattr(sys, "frozen", False), host="127.0.0.1", port=5000)
+    # 支援透過環境變數指定 Host，預設在 Docker 外仍為 127.0.0.1
+    import os
+    flask_host = os.environ.get("FLASK_HOST", "0.0.0.0")
+    app.run(debug=not getattr(sys, "frozen", False), host=flask_host, port=5001)

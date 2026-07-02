@@ -1,0 +1,19 @@
+# 💡 核心：ignore 埋所有舊的截圖，不打包進 Image
+static/screenshots/*
+
+# 順便 ignore 埋 Python 的快取資料夾（這也沒必要帶進 Docker）
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 如果有 SQLite 資料庫檔案在本地，也 ignore 埋（避免蓋掉 Docker 內的全新 DB）
+*.db
+*.sqlite3
+
+# ignore 埋 Docker 自己的設定檔與 Git 紀錄
+.git
+.gitignore
+docker-compose.yml
+Dockerfile
+.dockerignore

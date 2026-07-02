@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(nslookup gov-hk.org)",
+      "Bash(python *)",
+      "Bash(curl *)",
+      "Bash(dir \"D:\\\\DomainCap\\\\static\\\\screenshots\\\\2026-04-21\\\\\" 2>/dev/null)"
+    ]
+  }
+}

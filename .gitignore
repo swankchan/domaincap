@@ -1,4 +1,7 @@
-dist/*
-build/*
+dist/
+build/
 *.png
 *.jpg
+*.exe
+__pycache__/
+static/
